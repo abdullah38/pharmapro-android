@@ -6,22 +6,70 @@ import {
 import { WebView } from 'react-native-webview';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import * as FileSystem from 'expo-file-system';
 import { Asset } from 'expo-asset';
 import { useEffect } from 'react';
 
-// ─── App HTML loaded from bundled index.html ─────────────────────────────────
+// ─── Firebase config — yeh WebView mein inject hoga ─────────────────────────
+const FIREBASE_CONFIG = {
+  apiKey:            "AIzaSyDazMqh2qVyD6vyfvqgPuSvKzhrPecdEds",
+  authDomain:        "ibrahim-medical-store.firebaseapp.com",
+  projectId:         "ibrahim-medical-store",
+  storageBucket:     "ibrahim-medical-store.firebasestorage.app",
+  messagingSenderId: "55534174504",
+  appId:             "1:55534174504:web:9e114464429aedc113501d"
+};
+
+// ─── Injected JS — sabse pehle run hoga, Firebase se pehle ──────────────────
+const INJECTED_JS = `
+(function() {
+  // Firebase config set karo
+  window.PHARMA_USE_FIREBASE = true;
+  window.PHARMA_CONFIG = null;
+  window.PHARMA_FIREBASE_CONFIG = ${JSON.stringify(FIREBASE_CONFIG)};
+
+  // Android WebView mein localStorage sometimes restricted hota hai — fix
+  try {
+    localStorage.setItem('__test__', '1');
+    localStorage.removeItem('__test__');
+  } catch(e) {
+    // localStorage unavailable — use memory fallback
+    var store = {};
+    Object.defineProperty(window, 'localStorage', {
+      value: {
+        getItem: function(k) { return store[k] || null; },
+        setItem: function(k, v) { store[k] = String(v); },
+        removeItem: function(k) { delete store[k]; },
+        clear: function() { store = {}; },
+        get length() { return Object.keys(store).length; },
+        key: function(i) { return Object.keys(store)[i]; }
+      }
+    });
+  }
+
+  // Viewport fix
+  var meta = document.querySelector('meta[name="viewport"]');
+  if (!meta) {
+    meta = document.createElement('meta');
+    meta.name = 'viewport';
+    document.head.appendChild(meta);
+  }
+  meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';
+
+  true;
+})();
+`;
+
+// ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
   const webRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [htmlUri, setHtmlUri] = useState(null);
 
-  // Load the bundled HTML file
+  // Load bundled HTML
   useEffect(() => {
     async function loadHtml() {
       try {
-        // Copy bundled html to a readable location
         const asset = Asset.fromModule(require('./assets/index.html'));
         await asset.downloadAsync();
         setHtmlUri(asset.localUri || asset.uri);
@@ -33,7 +81,7 @@ export default function App() {
     loadHtml();
   }, []);
 
-  // Android back button — navigate back in WebView
+  // Android back button
   useEffect(() => {
     if (Platform.OS !== 'android') return;
     const handler = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -50,7 +98,7 @@ export default function App() {
     return (
       <View style={styles.center}>
         <Text style={styles.errorIcon}>⚠️</Text>
-        <Text style={styles.errorText}>App load karne mein masla aaya</Text>
+        <Text style={styles.errorText}>App load karne mein masla aaya{'\n'}Internet check karein</Text>
       </View>
     );
   }
@@ -76,32 +124,27 @@ export default function App() {
               onLoadStart={() => setLoading(true)}
               onLoadEnd={() => setLoading(false)}
               onError={() => { setLoading(false); setError(true); }}
+
+              // ✅ Firebase config inject — page load se PEHLE
+              injectedJavaScriptBeforeContentLoaded={INJECTED_JS}
+              injectedJavaScript={INJECTED_JS}
+
               javaScriptEnabled={true}
               domStorageEnabled={true}
               allowFileAccess={true}
               allowUniversalAccessFromFileURLs={true}
               originWhitelist={['*']}
               mixedContentMode="always"
-              cacheEnabled={true}
+              cacheEnabled={false}
               startInLoadingState={false}
               scalesPageToFit={false}
               allowsFullscreenVideo={false}
               mediaPlaybackRequiresUserAction={false}
+
+              // WebView → React Native messages
               onMessage={(event) => {
-                // Handle messages from web app if needed
                 console.log('WebView message:', event.nativeEvent.data);
               }}
-              injectedJavaScript={`
-                // Fix viewport for mobile
-                var meta = document.querySelector('meta[name="viewport"]');
-                if (!meta) {
-                  meta = document.createElement('meta');
-                  meta.name = 'viewport';
-                  document.head.appendChild(meta);
-                }
-                meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';
-                true;
-              `}
             />
           )}
         </SafeAreaView>
